@@ -15,8 +15,12 @@ fn correct_length(password: Password) -> bool {
     digits(password).count() == 6
 }
 
-fn has_double(password: Password) -> bool {
-    digits(password).tuple_windows().any(|(a, b)| a == b)
+fn has_only_double(password: Password) -> bool {
+    digits(password)
+        .group_by(|x| *x)
+        .into_iter()
+        .map(|(_k, g)| g.count())
+        .any(|c| c == 2)
 }
 
 fn is_sorted(password: Password) -> bool {
@@ -27,14 +31,14 @@ fn is_sorted(password: Password) -> bool {
 }
 
 fn valid_password(password: Password) -> bool {
-    correct_length(password) && has_double(password) && is_sorted(password)
+    correct_length(password) && has_only_double(password) && is_sorted(password)
 }
 
 #[test]
 fn specifications() {
-    assert!(valid_password(111111));
-    assert!(!valid_password(223450));
-    assert!(!valid_password(123789));
+    assert!(valid_password(112233));
+    assert!(!valid_password(123444));
+    assert!(valid_password(111122));
 }
 
 #[test]
