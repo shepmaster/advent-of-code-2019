@@ -1,11 +1,18 @@
 use itertools::Itertools;
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 type Error = Box<dyn std::error::Error>;
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-type Position = (i32, i32);
+type Coordinate = (i32, i32);
+type Distance = i32;
+
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+struct Position {
+    coord: Coordinate,
+    dist: Distance,
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum Direction {
@@ -19,13 +26,28 @@ use Direction::*;
 
 impl Direction {
     fn line_from(&self, start: Position) -> Box<dyn Iterator<Item = Position>> {
-        let (x, y) = start;
+        let Position {
+            coord: (x, y),
+            dist,
+        } = start;
 
         match *self {
-            U(d) => Box::new((0..d).map(|d| d + 1).map(move |d| (x, y + d))),
-            D(d) => Box::new((0..d).map(|d| d + 1).map(move |d| (x, y - d))),
-            R(d) => Box::new((0..d).map(|d| d + 1).map(move |d| (x + d, y))),
-            L(d) => Box::new((0..d).map(|d| d + 1).map(move |d| (x - d, y))),
+            U(d) => Box::new((0..d).map(|d| d + 1).map(move |d| Position {
+                coord: (x, y + d),
+                dist: dist + d,
+            })),
+            D(d) => Box::new((0..d).map(|d| d + 1).map(move |d| Position {
+                coord: (x, y - d),
+                dist: dist + d,
+            })),
+            R(d) => Box::new((0..d).map(|d| d + 1).map(move |d| Position {
+                coord: (x + d, y),
+                dist: dist + d,
+            })),
+            L(d) => Box::new((0..d).map(|d| d + 1).map(move |d| Position {
+                coord: (x - d, y),
+                dist: dist + d,
+            })),
         }
     }
 }
@@ -54,14 +76,16 @@ fn parsing() {
     assert_eq!("L12".parse::<Direction>().unwrap(), L(12));
 }
 
-fn points(directions: impl IntoIterator<Item = Direction>) -> BTreeSet<Position> {
-    let mut position = (0, 0);
-    let mut visited = BTreeSet::new();
+fn points(directions: impl IntoIterator<Item = Direction>) -> BTreeMap<Coordinate, Distance> {
+    let mut position = Position::default();
+    let mut visited = BTreeMap::new();
 
     for direction in directions {
-        for point in direction.line_from(position) {
-            visited.insert(point);
-            position = point;
+        for pos in direction.line_from(position) {
+            let Position { coord, dist } = pos;
+            // The first entry will have a minimal value
+            visited.entry(coord).or_insert(dist);
+            position = pos;
         }
     }
 
@@ -70,17 +94,17 @@ fn points(directions: impl IntoIterator<Item = Direction>) -> BTreeSet<Position>
 
 fn all_intersections(
     wires: impl IntoIterator<Item = impl IntoIterator<Item = Direction>>,
-) -> BTreeSet<Position> {
+) -> BTreeMap<Coordinate, Distance> {
     wires
         .into_iter()
         .map(points)
-        .fold1(|intersections, wires| &intersections & &wires)
+        .fold1(|intersections, points| {
+            intersections
+                .into_iter()
+                .flat_map(|(c, d1)| points.get(&c).map(|d2| (c, d1 + d2)))
+                .collect()
+        })
         .expect("Must have more than one wire")
-}
-
-fn distance_from_origin(position: Position) -> i32 {
-    let (x, y) = position;
-    x.abs() + y.abs()
 }
 
 fn closest_intersection(
@@ -88,8 +112,7 @@ fn closest_intersection(
 ) -> Option<i32> {
     all_intersections(wires)
         .into_iter()
-        .map(distance_from_origin)
-        .filter(|&d| d > 0)
+        .map(|(_, dist)| dist)
         .min()
 }
 
@@ -100,7 +123,7 @@ fn distance() {
             vec![R(8), U(5), L(5), D(3)],
             vec![U(7), R(6), D(4), L(4)],
         ]),
-        Some(6),
+        Some(30),
     );
 
     assert_eq!(
@@ -108,7 +131,7 @@ fn distance() {
             vec![R(75), D(30), R(83), U(83), L(12), D(49), R(71), U(7), L(72)],
             vec![U(62), R(66), U(55), R(34), D(71), R(55), D(58), R(83)],
         ]),
-        Some(159)
+        Some(610)
     );
 
     assert_eq!(
@@ -116,7 +139,7 @@ fn distance() {
             vec![R(98), U(47), R(26), D(63), R(33), U(87), L(62), D(20), R(33), U(53), R(51)],
             vec![U(98), R(91), D(20), R(16), D(67), R(40), U(7), R(15), U(6), R(7)],
         ]),
-        Some(135),
+        Some(410),
     );
 }
 
