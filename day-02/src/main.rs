@@ -1,8 +1,11 @@
+use itertools::Itertools;
 use std::convert::TryInto;
 
 fn unpack_binop_args(state: &mut [usize], pc: usize) -> (usize, usize, &mut usize) {
     let x = &state[pc + 1..][..3];
-    let x: [_; 3] = x.try_into().expect("Not enough arguments for binary operation");
+    let x: [_; 3] = x
+        .try_into()
+        .expect("Not enough arguments for binary operation");
     let [l, r, o] = x;
     let l = state[l];
     let r = state[r];
@@ -52,16 +55,26 @@ fn specifications() {
 const INPUT: &str = include_str!("input.txt");
 
 fn main() {
-    let mut input = INPUT
+    let input = INPUT
         .trim()
         .split(",")
         .map(str::parse)
         .collect::<Result<Vec<_>, _>>()
         .expect("Unable to load input");
 
-    input[1] = 12;
-    input[2] = 2;
+    for (noun, verb) in (0..100).cartesian_product(0..100) {
+        let mut modified = input.clone();
 
-    intcode(&mut input);
-    println!("{}", input[0]);
+        modified[1] = noun;
+        modified[2] = verb;
+
+        intcode(&mut modified);
+
+        if modified[0] == 19690720 {
+            println!("{}", 100 * noun + verb);
+            return;
+        }
+    }
+
+    eprintln!("Ran out of inputs!")
 }
