@@ -35,6 +35,10 @@ enum Operation {
     Multiply(Parameter, Parameter, Parameter),
     Input(Parameter),
     Output(Parameter),
+    JumpIfTrue(Parameter, Parameter),
+    JumpIfFalse(Parameter, Parameter),
+    LessThan(Parameter, Parameter, Parameter),
+    Equals(Parameter, Parameter, Parameter),
     Halt,
 }
 
@@ -46,11 +50,11 @@ impl Operation {
 
         Ok(match opcode {
             01 => {
-                let [l, r, o] = Self::decode_binop_params(program, pc)?;
+                let [l, r, o] = Self::decode_three_params(program, pc)?;
                 Add(l, r, o)
             }
             02 => {
-                let [l, r, o] = Self::decode_binop_params(program, pc)?;
+                let [l, r, o] = Self::decode_three_params(program, pc)?;
                 Multiply(l, r, o)
             }
             03 => {
@@ -60,6 +64,22 @@ impl Operation {
             04 => {
                 let p = Self::decode_single_param(program, pc)?;
                 Output(p)
+            }
+            05 => {
+                let [c, l] = Self::decode_two_params(program, pc)?;
+                JumpIfTrue(c, l)
+            }
+            06 => {
+                let [c, l] = Self::decode_two_params(program, pc)?;
+                JumpIfFalse(c, l)
+            }
+            07 => {
+                let [l, r, o] = Self::decode_three_params(program, pc)?;
+                LessThan(l, r, o)
+            }
+            08 => {
+                let [l, r, o] = Self::decode_three_params(program, pc)?;
+                Equals(l, r, o)
             }
             99 => Halt,
             _ => Err(format!("Unknown opcode {}", opcode))?,
@@ -80,7 +100,29 @@ impl Operation {
         })
     }
 
-    fn decode_binop_params(program: &Program, pc: ProgramCounter) -> Result<[Parameter; 3]> {
+    fn decode_two_params(program: &Program, pc: ProgramCounter) -> Result<[Parameter; 2]> {
+        let raw_op = program[pc];
+        let p1_mode = (raw_op % 1000 / 100) == 1;
+        let p2_mode = (raw_op % 10000 / 1000) == 1;
+
+        let args: [_; 2] = program[pc..][1..][..2].try_into()?;
+        let [a, b] = args;
+
+        Ok([
+            if p1_mode {
+                Parameter::Immediate(a)
+            } else {
+                Parameter::Position(a.try_into()?)
+            },
+            if p2_mode {
+                Parameter::Immediate(b)
+            } else {
+                Parameter::Position(b.try_into()?)
+            },
+        ])
+    }
+
+    fn decode_three_params(program: &Program, pc: ProgramCounter) -> Result<[Parameter; 3]> {
         let raw_op = program[pc];
         let p1_mode = (raw_op % 1000 / 100) == 1;
         let p2_mode = (raw_op % 10000 / 1000) == 1;
@@ -111,21 +153,62 @@ impl Operation {
     pub fn execute(
         &self,
         program: &mut Program,
+        pc: &mut ProgramCounter,
         mut input: impl Iterator<Item = Byte>,
         output: &mut Output,
     ) -> Result<()> {
         use Operation::*;
 
         match self {
-            Add(l, r, o) => Self::binop(program, l, r, o, |l, r| l + r),
-            Multiply(l, r, o) => Self::binop(program, l, r, o, |l, r| l * r),
+            Add(l, r, o) => {
+                Self::binop(program, l, r, o, |l, r| l + r);
+                *pc += self.width();
+            }
+            Multiply(l, r, o) => {
+                Self::binop(program, l, r, o, |l, r| l * r);
+                *pc += self.width();
+            }
             Input(p) => {
                 let v = input.next().ok_or("No more input is available")?;
                 p.write(program, v);
+                *pc += self.width();
             }
             Output(p) => {
                 let v = p.read(program);
                 output.push(v);
+                *pc += self.width();
+            }
+            JumpIfTrue(c, l) => {
+                if c.read(program) != 0 {
+                    *pc = l.read(program).try_into()?;
+                } else {
+                    *pc += self.width();
+                }
+            }
+            JumpIfFalse(c, l) => {
+                if c.read(program) == 0 {
+                    *pc = l.read(program).try_into()?;
+                } else {
+                    *pc += self.width();
+                }
+            }
+            LessThan(l, r, o) => {
+                let v = if l.read(program) < r.read(program) {
+                    1
+                } else {
+                    0
+                };
+                o.write(program, v);
+                *pc += self.width();
+            }
+            Equals(l, r, o) => {
+                let v = if l.read(program) == r.read(program) {
+                    1
+                } else {
+                    0
+                };
+                o.write(program, v);
+                *pc += self.width();
             }
             Halt => { /* Do nothing */ }
         }
@@ -154,6 +237,10 @@ impl Operation {
             Multiply(..) => 4,
             Input(..) => 2,
             Output(..) => 2,
+            JumpIfTrue(..) => 3,
+            JumpIfFalse(..) => 3,
+            LessThan(..) => 4,
+            Equals(..) => 4,
             Halt => 1,
         }
     }
@@ -171,8 +258,7 @@ fn execute(program: &mut Program, input: impl IntoIterator<Item = Byte>) -> Resu
             break;
         }
 
-        op.execute(program, &mut input, &mut output)?;
-        pc += op.width();
+        op.execute(program, &mut pc, &mut input, &mut output)?;
     }
 
     Ok(output)
@@ -191,6 +277,40 @@ fn specifications() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn compare_instructions() -> Result<()> {
+    let mut program = [3, 9, 8, 9, 10, 9, 4, 9, 99, -1, 8];
+    let output = execute(&mut program, Some(8))?;
+    assert_eq!(output, [1]);
+
+    let mut program = [3, 9, 7, 9, 10, 9, 4, 9, 99, -1, 8];
+    let output = execute(&mut program, Some(8))?;
+    assert_eq!(output, [0]);
+
+    let mut program = [3, 3, 1108, -1, 8, 3, 4, 3, 99];
+    let output = execute(&mut program, Some(7))?;
+    assert_eq!(output, [0]);
+
+    let mut program = [3, 3, 1107, -1, 8, 3, 4, 3, 99];
+    let output = execute(&mut program, Some(7))?;
+    assert_eq!(output, [1]);
+
+    Ok(())
+}
+
+#[test]
+fn jump_instructions() -> Result<()> {
+    let mut program = [3, 12, 6, 12, 15, 1, 13, 14, 13, 4, 13, 99, -1, 0, 1, 9];
+    let output = execute(&mut program, Some(0))?;
+    assert_eq!(output, [0]);
+
+    let mut program = [3, 3, 1105, -1, 9, 1101, 0, 0, 12, 4, 12, 99, 1];
+    let output = execute(&mut program, Some(100))?;
+    assert_eq!(output, [1]);
+
+    Ok(())
+}
+
 const INPUT: &str = include_str!("input.txt");
 
 fn main() -> Result<()> {
@@ -200,7 +320,7 @@ fn main() -> Result<()> {
         .map(str::parse)
         .collect::<Result<Vec<_>, _>>()?;
 
-    let output = execute(&mut program, Some(1))?;
+    let output = execute(&mut program, Some(5))?;
     println!("{:?}", output);
 
     Ok(())
