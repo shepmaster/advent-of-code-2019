@@ -1,12 +1,12 @@
 use std::convert::TryInto;
 
-type Byte = i32;
-type Program = [Byte];
-type ProgramCounter = usize;
-type Output = Vec<Byte>;
+pub type Byte = i32;
+pub type Program = [Byte];
+pub type ProgramCounter = usize;
+pub type Output = Vec<Byte>;
 
-type Error = Box<dyn std::error::Error>;
-type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Error = Box<dyn std::error::Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum Parameter {
