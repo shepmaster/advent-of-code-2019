@@ -8,6 +8,7 @@ version = "0.1.0"
 name = "day-02"
 version = "0.1.0"
 dependencies = [
+ "intcode 0.1.0",
  "itertools 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -28,6 +29,9 @@ dependencies = [
 [[package]]
 name = "day-05"
 version = "0.1.0"
+dependencies = [
+ "intcode 0.1.0",
+]
 
 [[package]]
 name = "day-06"
@@ -37,6 +41,10 @@ version = "0.1.0"
 name = "either"
 version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "intcode"
+version = "0.1.0"
 
 [[package]]
 name = "itertools"
