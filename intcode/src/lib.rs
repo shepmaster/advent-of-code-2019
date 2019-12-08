@@ -1,3 +1,4 @@
+pub use crossbeam_channel::{unbounded as channel, Receiver, Sender};
 use std::convert::TryInto;
 
 pub type Byte = i32;
@@ -5,7 +6,7 @@ pub type Program = [Byte];
 pub type ProgramCounter = usize;
 pub type Output = Vec<Byte>;
 
-pub type Error = Box<dyn std::error::Error>;
+pub type Error = Box<dyn std::error::Error + Sync + Send + 'static>;
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -156,7 +157,7 @@ impl Operation {
         program: &mut Program,
         pc: &mut ProgramCounter,
         mut input: impl Iterator<Item = Byte>,
-        output: &mut Output,
+        mut output: impl OutputStream<Item = Byte>,
     ) -> Result<()> {
         use Operation::*;
 
@@ -247,10 +248,13 @@ impl Operation {
     }
 }
 
-pub fn execute(program: &mut Program, input: impl IntoIterator<Item = Byte>) -> Result<Output> {
+pub fn execute_with_output(
+    program: &mut Program,
+    input: impl IntoIterator<Item = Byte>,
+    mut output: impl OutputStream<Item = Byte>,
+) -> Result<()> {
     let mut pc = 0;
     let mut input = input.into_iter();
-    let mut output = Output::default();
 
     loop {
         let op = Operation::decode(program, pc)?;
@@ -262,7 +266,44 @@ pub fn execute(program: &mut Program, input: impl IntoIterator<Item = Byte>) -> 
         op.execute(program, &mut pc, &mut input, &mut output)?;
     }
 
-    Ok(output)
+    Ok(())
+}
+
+pub fn execute(program: &mut Program, input: impl IntoIterator<Item = Byte>) -> Result<Output> {
+    let mut output = Output::default();
+    execute_with_output(program, input, &mut output).map(|()| output)
+}
+
+pub trait OutputStream {
+    type Item;
+    fn push(&mut self, val: Self::Item);
+}
+
+impl<O> OutputStream for &'_ mut O
+where
+    O: OutputStream,
+{
+    type Item = O::Item;
+
+    fn push(&mut self, val: Self::Item) {
+        (**self).push(val);
+    }
+}
+
+impl<T> OutputStream for Vec<T> {
+    type Item = T;
+
+    fn push(&mut self, val: Self::Item) {
+        Vec::push(self, val);
+    }
+}
+
+impl<T> OutputStream for Sender<T> {
+    type Item = T;
+
+    fn push(&mut self, val: Self::Item) {
+        self.send(val).expect("Unable to output to channel");
+    }
 }
 
 #[cfg(test)]

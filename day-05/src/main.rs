@@ -1,4 +1,4 @@
-type Error = Box<dyn std::error::Error>;
+type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 type Result<T, E = Error> = std::result::Result<T, E>;
 
 const INPUT: &str = include_str!("input.txt");
