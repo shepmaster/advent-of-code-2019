@@ -4,8 +4,13 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 const INPUT: &str = include_str!("input.txt");
 
 fn main() -> Result<()> {
-    let mut program = INPUT.split(",").flat_map(str::parse).collect();
-    let output = intcode::execute(&mut program, Some(1))?;
+    let mut program: intcode::Program = INPUT.split(",").flat_map(str::parse).collect();
+
+    let output = intcode::execute(&mut program.clone(), Some(1))?;
     println!("{:?}", output);
+
+    let output = intcode::execute(&mut program, Some(2))?;
+    println!("{:?}", output);
+
     Ok(())
 }
