@@ -1,4 +1,5 @@
 pub use crossbeam_channel::{unbounded as channel, Receiver, Sender};
+use itertools::Itertools;
 use std::convert::TryInto;
 
 pub type Byte = i32;
@@ -97,43 +98,50 @@ impl Operation {
     }
 
     fn decode_single_param(program: &Program, pc: ProgramCounter) -> Result<[Parameter; 1]> {
-        let raw_op = program[pc];
-        let p1_mode = raw_op % 1000 / 100;
+        let (a,) = Self::params(program, pc)
+            .tuples()
+            .next()
+            .ok_or("Not enough arguments")?;
 
-        let args: [_; 1] = program[pc..][1..][..1].try_into()?;
-        let [a] = args;
-
-        Ok([Parameter::from_mode_and_value(p1_mode, a)?])
+        Ok([a?])
     }
 
     fn decode_two_params(program: &Program, pc: ProgramCounter) -> Result<[Parameter; 2]> {
-        let raw_op = program[pc];
-        let p1_mode = raw_op % 1000 / 100;
-        let p2_mode = raw_op % 10000 / 1000;
+        let (a, b) = Self::params(program, pc)
+            .tuples()
+            .next()
+            .ok_or("Not enough arguments")?;
 
-        let args: [_; 2] = program[pc..][1..][..2].try_into()?;
-        let [a, b] = args;
-
-        Ok([
-            Parameter::from_mode_and_value(p1_mode, a)?,
-            Parameter::from_mode_and_value(p2_mode, b)?,
-        ])
+        Ok([a?, b?])
     }
 
     fn decode_three_params(program: &Program, pc: ProgramCounter) -> Result<[Parameter; 3]> {
-        let raw_op = program[pc];
-        let p1_mode = raw_op % 1000 / 100;
-        let p2_mode = raw_op % 10000 / 1000;
-        let p3_mode = raw_op % 100000 / 10000;
+        let (a, b, c) = Self::params(program, pc)
+            .tuples()
+            .next()
+            .ok_or("Not enough arguments")?;
 
-        let args: [_; 3] = program[pc..][1..][..3].try_into()?;
-        let [a, b, c] = args;
+        Ok([a?, b?, c?])
+    }
 
-        Ok([
-            Parameter::from_mode_and_value(p1_mode, a)?,
-            Parameter::from_mode_and_value(p2_mode, b)?,
-            Parameter::from_mode_and_value(p3_mode, c)?,
-        ])
+    fn params(
+        program: &Program,
+        pc: ProgramCounter,
+    ) -> impl Iterator<Item = Result<Parameter>> + '_ {
+        let (op, args) = program[pc..].split_at(1);
+
+        Self::modes(op[0])
+            .zip(args)
+            .map(|(m, &v)| Parameter::from_mode_and_value(m, v))
+    }
+
+    fn modes(raw_op: Byte) -> impl Iterator<Item = Byte> {
+        let mut a = 100;
+        (0..).map(move |_| {
+            let v = raw_op % (a * 10) / a;
+            a *= 10;
+            v
+        })
     }
 
     fn execute(
