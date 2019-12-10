@@ -16,6 +16,14 @@ enum Parameter {
 }
 
 impl Parameter {
+    fn from_mode_and_value(mode: Byte, value: Byte) -> Result<Self> {
+        match mode {
+            0 => Ok(Parameter::Position(value.try_into()?)),
+            1 => Ok(Parameter::Immediate(value)),
+            _ => Err(format!("Unknown mode {}", mode))?,
+        }
+    }
+
     fn read(&self, program: &Program) -> Byte {
         match *self {
             Parameter::Position(p) => program[p],
@@ -60,11 +68,11 @@ impl Operation {
                 Multiply(l, r, o)
             }
             03 => {
-                let p = Self::decode_single_param(program, pc)?;
+                let [p] = Self::decode_single_param(program, pc)?;
                 Input(p)
             }
             04 => {
-                let p = Self::decode_single_param(program, pc)?;
+                let [p] = Self::decode_single_param(program, pc)?;
                 Output(p)
             }
             05 => {
@@ -88,67 +96,43 @@ impl Operation {
         })
     }
 
-    fn decode_single_param(program: &Program, pc: ProgramCounter) -> Result<Parameter> {
+    fn decode_single_param(program: &Program, pc: ProgramCounter) -> Result<[Parameter; 1]> {
         let raw_op = program[pc];
-        let p1_mode = (raw_op % 1000 / 100) == 1;
+        let p1_mode = raw_op % 1000 / 100;
 
         let args: [_; 1] = program[pc..][1..][..1].try_into()?;
-        let [p] = args;
+        let [a] = args;
 
-        Ok(if p1_mode {
-            Parameter::Immediate(p)
-        } else {
-            Parameter::Position(p.try_into()?)
-        })
+        Ok([Parameter::from_mode_and_value(p1_mode, a)?])
     }
 
     fn decode_two_params(program: &Program, pc: ProgramCounter) -> Result<[Parameter; 2]> {
         let raw_op = program[pc];
-        let p1_mode = (raw_op % 1000 / 100) == 1;
-        let p2_mode = (raw_op % 10000 / 1000) == 1;
+        let p1_mode = raw_op % 1000 / 100;
+        let p2_mode = raw_op % 10000 / 1000;
 
         let args: [_; 2] = program[pc..][1..][..2].try_into()?;
         let [a, b] = args;
 
         Ok([
-            if p1_mode {
-                Parameter::Immediate(a)
-            } else {
-                Parameter::Position(a.try_into()?)
-            },
-            if p2_mode {
-                Parameter::Immediate(b)
-            } else {
-                Parameter::Position(b.try_into()?)
-            },
+            Parameter::from_mode_and_value(p1_mode, a)?,
+            Parameter::from_mode_and_value(p2_mode, b)?,
         ])
     }
 
     fn decode_three_params(program: &Program, pc: ProgramCounter) -> Result<[Parameter; 3]> {
         let raw_op = program[pc];
-        let p1_mode = (raw_op % 1000 / 100) == 1;
-        let p2_mode = (raw_op % 10000 / 1000) == 1;
-        let p3_mode = (raw_op % 100000 / 10000) == 1;
+        let p1_mode = raw_op % 1000 / 100;
+        let p2_mode = raw_op % 10000 / 1000;
+        let p3_mode = raw_op % 100000 / 10000;
 
         let args: [_; 3] = program[pc..][1..][..3].try_into()?;
-        let [l, r, o] = args;
+        let [a, b, c] = args;
 
         Ok([
-            if p1_mode {
-                Parameter::Immediate(l)
-            } else {
-                Parameter::Position(l.try_into()?)
-            },
-            if p2_mode {
-                Parameter::Immediate(r)
-            } else {
-                Parameter::Position(r.try_into()?)
-            },
-            if p3_mode {
-                Parameter::Immediate(o)
-            } else {
-                Parameter::Position(o.try_into()?)
-            },
+            Parameter::from_mode_and_value(p1_mode, a)?,
+            Parameter::from_mode_and_value(p2_mode, b)?,
+            Parameter::from_mode_and_value(p3_mode, c)?,
         ])
     }
 
