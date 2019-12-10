@@ -1,10 +1,11 @@
 pub use crossbeam_channel::{unbounded as channel, Receiver, Sender};
 use itertools::Itertools;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 
-pub type Byte = i32;
-pub type Program = [Byte];
+pub type Byte = i128;
+pub type Program = Vec<Byte>;
 pub type ProgramCounter = usize;
+pub type ProgramCounterOffset = isize;
 pub type Output = Vec<Byte>;
 
 pub type Error = Box<dyn std::error::Error + Sync + Send + 'static>;
@@ -14,6 +15,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 enum Parameter {
     Position(ProgramCounter),
     Immediate(Byte),
+    Relative(ProgramCounterOffset),
 }
 
 impl Parameter {
@@ -21,21 +23,40 @@ impl Parameter {
         match mode {
             0 => Ok(Parameter::Position(value.try_into()?)),
             1 => Ok(Parameter::Immediate(value)),
+            2 => Ok(Parameter::Relative(value.try_into()?)),
             _ => Err(format!("Unknown mode {}", mode))?,
         }
     }
 
-    fn read(&self, program: &Program) -> Byte {
+    fn read(&self, program: &Program, relative_base: ProgramCounter) -> Byte {
         match *self {
-            Parameter::Position(p) => program[p],
+            Parameter::Position(p) => program.get(p).copied().unwrap_or(0),
             Parameter::Immediate(i) => i,
+            Parameter::Relative(r) => {
+                let b = isize::try_from(relative_base).expect("Cannot convert relative base");
+                let a = usize::try_from(b + r).expect("Cannot convert absolute address");
+                program.get(a).copied().unwrap_or(0)
+            }
         }
     }
 
-    fn write(&self, program: &mut Program, value: Byte) {
+    fn write(&self, program: &mut Program, relative_base: ProgramCounter, value: Byte) {
         match *self {
-            Parameter::Position(p) => program[p] = value,
+            Parameter::Position(p) => {
+                if program.len() <= p {
+                    program.resize(p + 1, 0);
+                }
+                program[p] = value
+            }
             Parameter::Immediate(_) => panic!("Must not write to immediate parameter"),
+            Parameter::Relative(r) => {
+                let b = isize::try_from(relative_base).expect("Cannot convert relative base");
+                let a = usize::try_from(b + r).expect("Cannot convert absolute address");
+                if program.len() <= a {
+                    program.resize(a + 1, 0);
+                }
+                program[a] = value;
+            }
         }
     }
 }
@@ -50,11 +71,12 @@ enum Operation {
     JumpIfFalse(Parameter, Parameter),
     LessThan(Parameter, Parameter, Parameter),
     Equals(Parameter, Parameter, Parameter),
+    AdjustRelativeBase(Parameter),
     Halt,
 }
 
 impl Operation {
-    fn decode(program: &mut Program, pc: ProgramCounter) -> Result<Self, Error> {
+    fn decode(program: &Program, pc: ProgramCounter) -> Result<Self, Error> {
         use Operation::*;
 
         let opcode = program[pc] % 100;
@@ -91,6 +113,10 @@ impl Operation {
             08 => {
                 let [l, r, o] = Self::decode_three_params(program, pc)?;
                 Equals(l, r, o)
+            }
+            09 => {
+                let [p] = Self::decode_single_param(program, pc)?;
+                AdjustRelativeBase(p)
             }
             99 => Halt,
             _ => Err(format!("Unknown opcode {}", opcode))?,
@@ -148,6 +174,7 @@ impl Operation {
         &self,
         program: &mut Program,
         pc: &mut ProgramCounter,
+        relative_base: &mut ProgramCounter,
         mut input: impl Iterator<Item = Byte>,
         mut output: impl OutputStream<Item = Byte>,
     ) -> Result<()> {
@@ -155,53 +182,61 @@ impl Operation {
 
         match self {
             Add(l, r, o) => {
-                Self::binop(program, l, r, o, |l, r| l + r);
+                Self::binop(program, *relative_base, l, r, o, |l, r| l + r);
                 *pc += self.width();
             }
             Multiply(l, r, o) => {
-                Self::binop(program, l, r, o, |l, r| l * r);
+                Self::binop(program, *relative_base, l, r, o, |l, r| l * r);
                 *pc += self.width();
             }
             Input(p) => {
                 let v = input.next().ok_or("No more input is available")?;
-                p.write(program, v);
+                p.write(program, *relative_base, v);
                 *pc += self.width();
             }
             Output(p) => {
-                let v = p.read(program);
+                let v = p.read(program, *relative_base);
                 output.push(v);
                 *pc += self.width();
             }
             JumpIfTrue(c, l) => {
-                if c.read(program) != 0 {
-                    *pc = l.read(program).try_into()?;
+                if c.read(program, *relative_base) != 0 {
+                    *pc = l.read(program, *relative_base).try_into()?;
                 } else {
                     *pc += self.width();
                 }
             }
             JumpIfFalse(c, l) => {
-                if c.read(program) == 0 {
-                    *pc = l.read(program).try_into()?;
+                if c.read(program, *relative_base) == 0 {
+                    *pc = l.read(program, *relative_base).try_into()?;
                 } else {
                     *pc += self.width();
                 }
             }
             LessThan(l, r, o) => {
-                let v = if l.read(program) < r.read(program) {
+                let v = if l.read(program, *relative_base) < r.read(program, *relative_base) {
                     1
                 } else {
                     0
                 };
-                o.write(program, v);
+                o.write(program, *relative_base, v);
                 *pc += self.width();
             }
             Equals(l, r, o) => {
-                let v = if l.read(program) == r.read(program) {
+                let v = if l.read(program, *relative_base) == r.read(program, *relative_base) {
                     1
                 } else {
                     0
                 };
-                o.write(program, v);
+                o.write(program, *relative_base, v);
+                *pc += self.width();
+            }
+            AdjustRelativeBase(p) => {
+                let r = p.read(program, *relative_base);
+                let r = isize::try_from(r).expect("Cannot convert relative offset");
+                let b = isize::try_from(*relative_base).expect("Cannot convert relative base");
+                let a = usize::try_from(b + r).expect("Cannot convert absolute address");
+                *relative_base = a;
                 *pc += self.width();
             }
             Halt => { /* Do nothing */ }
@@ -212,15 +247,16 @@ impl Operation {
 
     fn binop(
         program: &mut Program,
+        relative_base: ProgramCounter,
         l: &Parameter,
         r: &Parameter,
         o: &Parameter,
         f: impl FnOnce(Byte, Byte) -> Byte,
     ) {
-        let l = l.read(program);
-        let r = r.read(program);
+        let l = l.read(program, relative_base);
+        let r = r.read(program, relative_base);
         let v = f(l, r);
-        o.write(program, v);
+        o.write(program, relative_base, v);
     }
 
     fn width(&self) -> ProgramCounter {
@@ -235,6 +271,7 @@ impl Operation {
             JumpIfFalse(..) => 3,
             LessThan(..) => 4,
             Equals(..) => 4,
+            AdjustRelativeBase(..) => 2,
             Halt => 1,
         }
     }
@@ -246,6 +283,7 @@ pub fn execute_with_output(
     mut output: impl OutputStream<Item = Byte>,
 ) -> Result<()> {
     let mut pc = 0;
+    let mut relative_base = 0;
     let mut input = input.into_iter();
 
     loop {
@@ -255,7 +293,13 @@ pub fn execute_with_output(
             break;
         }
 
-        op.execute(program, &mut pc, &mut input, &mut output)?;
+        op.execute(
+            program,
+            &mut pc,
+            &mut relative_base,
+            &mut input,
+            &mut output,
+        )?;
     }
 
     Ok(())
@@ -304,19 +348,19 @@ mod tests {
 
     #[test]
     fn specifications_day_02() -> Result<()> {
-        let mut state = [1, 0, 0, 0, 99];
+        let mut state = vec![1, 0, 0, 0, 99];
         execute(&mut state, None)?;
         assert_eq!(state, [2, 0, 0, 0, 99]);
 
-        let mut state = [2, 3, 0, 3, 99];
+        let mut state = vec![2, 3, 0, 3, 99];
         execute(&mut state, None)?;
         assert_eq!(state, [2, 3, 0, 6, 99]);
 
-        let mut state = [2, 4, 4, 5, 99, 0];
+        let mut state = vec![2, 4, 4, 5, 99, 0];
         execute(&mut state, None)?;
         assert_eq!(state, [2, 4, 4, 5, 99, 9801]);
 
-        let mut state = [1, 1, 1, 4, 99, 5, 6, 0, 99];
+        let mut state = vec![1, 1, 1, 4, 99, 5, 6, 0, 99];
         execute(&mut state, None)?;
         assert_eq!(state, [30, 1, 1, 4, 2, 5, 6, 0, 99]);
 
@@ -325,11 +369,11 @@ mod tests {
 
     #[test]
     fn specifications_day_05() -> Result<()> {
-        let mut program = [1002, 4, 3, 4, 33];
+        let mut program = vec![1002, 4, 3, 4, 33];
         execute(&mut program, None)?;
         assert_eq!(program[4], 99);
 
-        let mut program = [3, 0, 4, 0, 99];
+        let mut program = vec![3, 0, 4, 0, 99];
         let output = execute(&mut program, Some(42))?;
         assert_eq!(output, [42]);
 
@@ -338,19 +382,19 @@ mod tests {
 
     #[test]
     fn compare_instructions() -> Result<()> {
-        let mut program = [3, 9, 8, 9, 10, 9, 4, 9, 99, -1, 8];
+        let mut program = vec![3, 9, 8, 9, 10, 9, 4, 9, 99, -1, 8];
         let output = execute(&mut program, Some(8))?;
         assert_eq!(output, [1]);
 
-        let mut program = [3, 9, 7, 9, 10, 9, 4, 9, 99, -1, 8];
+        let mut program = vec![3, 9, 7, 9, 10, 9, 4, 9, 99, -1, 8];
         let output = execute(&mut program, Some(8))?;
         assert_eq!(output, [0]);
 
-        let mut program = [3, 3, 1108, -1, 8, 3, 4, 3, 99];
+        let mut program = vec![3, 3, 1108, -1, 8, 3, 4, 3, 99];
         let output = execute(&mut program, Some(7))?;
         assert_eq!(output, [0]);
 
-        let mut program = [3, 3, 1107, -1, 8, 3, 4, 3, 99];
+        let mut program = vec![3, 3, 1107, -1, 8, 3, 4, 3, 99];
         let output = execute(&mut program, Some(7))?;
         assert_eq!(output, [1]);
 
@@ -359,14 +403,44 @@ mod tests {
 
     #[test]
     fn jump_instructions() -> Result<()> {
-        let mut program = [3, 12, 6, 12, 15, 1, 13, 14, 13, 4, 13, 99, -1, 0, 1, 9];
+        let mut program = vec![3, 12, 6, 12, 15, 1, 13, 14, 13, 4, 13, 99, -1, 0, 1, 9];
         let output = execute(&mut program, Some(0))?;
         assert_eq!(output, [0]);
 
-        let mut program = [3, 3, 1105, -1, 9, 1101, 0, 0, 12, 4, 12, 99, 1];
+        let mut program = vec![3, 3, 1105, -1, 9, 1101, 0, 0, 12, 4, 12, 99, 1];
         let output = execute(&mut program, Some(100))?;
         assert_eq!(output, [1]);
 
+        Ok(())
+    }
+
+    #[test]
+    fn quine() -> Result<()> {
+        let original = [
+            109, 1, 204, -1, 1001, 100, 1, 100, 1008, 100, 16, 101, 1006, 101, 0, 99,
+        ];
+        let mut program = original.to_vec();
+        let output = execute(&mut program, None)?;
+        assert_eq!(output, original);
+
+        Ok(())
+    }
+
+    #[test]
+    fn sixteen_digit() -> Result<()> {
+        let mut program = vec![1102, 34915192, 34915192, 7, 4, 7, 99, 0];
+        let output = execute(&mut program, None)?;
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0].to_string().len(), 16);
+        Ok(())
+    }
+
+    #[test]
+    fn big_number() -> Result<()> {
+        let mut program = vec![104, 1125899906842624, 99];
+        let output = execute(&mut program, None)?;
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0], 1125899906842624);
         Ok(())
     }
 }

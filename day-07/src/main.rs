@@ -81,11 +81,20 @@ mod test {
 
     #[test]
     fn amplifier_functionality() -> Result<()> {
-        assert_eq!(amplifier(EXAMPLE_PROGRAM_1, &[4, 3, 2, 1, 0])?, 43210);
+        assert_eq!(
+            amplifier(&mut EXAMPLE_PROGRAM_1.to_vec(), &[4, 3, 2, 1, 0])?,
+            43210
+        );
 
-        assert_eq!(amplifier(EXAMPLE_PROGRAM_2, &[0, 1, 2, 3, 4])?, 54321);
+        assert_eq!(
+            amplifier(&mut EXAMPLE_PROGRAM_2.to_vec(), &[0, 1, 2, 3, 4])?,
+            54321
+        );
 
-        assert_eq!(amplifier(EXAMPLE_PROGRAM_3, &[1, 0, 4, 3, 2])?, 65210);
+        assert_eq!(
+            amplifier(&mut EXAMPLE_PROGRAM_3.to_vec(), &[1, 0, 4, 3, 2])?,
+            65210
+        );
 
         Ok(())
     }
@@ -94,11 +103,20 @@ mod test {
     fn search_functionality() -> Result<()> {
         use SearchSpace::*;
 
-        assert_eq!(search_for_max(EXAMPLE_PROGRAM_1, Plain)?, Some(43210));
+        assert_eq!(
+            search_for_max(&mut EXAMPLE_PROGRAM_1.to_vec(), Plain)?,
+            Some(43210)
+        );
 
-        assert_eq!(search_for_max(EXAMPLE_PROGRAM_2, Plain)?, Some(54321));
+        assert_eq!(
+            search_for_max(&mut EXAMPLE_PROGRAM_2.to_vec(), Plain)?,
+            Some(54321)
+        );
 
-        assert_eq!(search_for_max(EXAMPLE_PROGRAM_3, Plain)?, Some(65210));
+        assert_eq!(
+            search_for_max(&mut EXAMPLE_PROGRAM_3.to_vec(), Plain)?,
+            Some(65210)
+        );
 
         Ok(())
     }
@@ -116,9 +134,15 @@ mod test {
 
     #[test]
     fn amplifier_feedback_functionality() -> Result<()> {
-        assert_eq!(amplifier(FEEDBACK_PROGRAM_1, &[9, 8, 7, 6, 5])?, 139629729);
+        assert_eq!(
+            amplifier(&mut FEEDBACK_PROGRAM_1.to_vec(), &[9, 8, 7, 6, 5])?,
+            139629729
+        );
 
-        assert_eq!(amplifier(FEEDBACK_PROGRAM_2, &[9, 7, 8, 5, 6])?, 18216);
+        assert_eq!(
+            amplifier(&mut FEEDBACK_PROGRAM_2.to_vec(), &[9, 7, 8, 5, 6])?,
+            18216
+        );
 
         Ok(())
     }
@@ -128,11 +152,14 @@ mod test {
         use SearchSpace::*;
 
         assert_eq!(
-            search_for_max(FEEDBACK_PROGRAM_1, Feedback)?,
+            search_for_max(&mut FEEDBACK_PROGRAM_1.to_vec(), Feedback)?,
             Some(139629729)
         );
 
-        assert_eq!(search_for_max(FEEDBACK_PROGRAM_2, Feedback)?, Some(18216));
+        assert_eq!(
+            search_for_max(&mut FEEDBACK_PROGRAM_2.to_vec(), Feedback)?,
+            Some(18216)
+        );
 
         Ok(())
     }
