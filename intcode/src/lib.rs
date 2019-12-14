@@ -1,6 +1,9 @@
 pub use crossbeam_channel::{unbounded as channel, Receiver, Sender};
 use itertools::Itertools;
-use std::convert::{TryFrom, TryInto};
+use std::{
+    convert::{TryFrom, TryInto},
+    thread,
+};
 
 pub type Byte = i128;
 pub type Program = Vec<Byte>;
@@ -277,6 +280,10 @@ impl Operation {
     }
 }
 
+pub fn parse_program(s: &str) -> Program {
+    s.trim().split(",").flat_map(str::parse).collect()
+}
+
 pub fn execute_with_output(
     program: &mut Program,
     input: impl IntoIterator<Item = Byte>,
@@ -303,6 +310,28 @@ pub fn execute_with_output(
     }
 
     Ok(())
+}
+
+pub fn execute_side_by_side<F, T>(mut program: Program, f: F) -> T
+where
+    T: Send + Sync + 'static,
+    F: FnOnce(Sender<Byte>, Receiver<Byte>) -> T,
+    F: Send + Sync + 'static,
+{
+    let (tx, rx) = channel();
+    let (tx2, rx2) = channel();
+
+    let side_program = thread::spawn(move || f(tx2, rx));
+
+    let computer = thread::spawn(move || execute_with_output(&mut program, rx2, tx));
+
+    computer
+        .join()
+        .expect("Computer panicked")
+        .expect("Execution failed");
+    let side_result = side_program.join().expect("Side program panicked");
+
+    side_result
 }
 
 pub fn execute(program: &mut Program, input: impl IntoIterator<Item = Byte>) -> Result<Output> {
