@@ -116,6 +116,7 @@ version = "0.1.0"
 dependencies = [
  "intcode 0.1.0",
  "itertools 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "util 0.1.0",
 ]
 
 [[package]]
@@ -128,6 +129,7 @@ name = "intcode"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crossbeam-utils 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools 0.8.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -148,6 +150,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "permutohedron"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "util"
+version = "0.1.0"
 
 [metadata]
 "checksum autocfg 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "1d49d90015b3c36167a20fe2810c5cd875ad504b39cff3d4eae7977e6b7c1cb2"

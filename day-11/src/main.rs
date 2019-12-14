@@ -46,15 +46,15 @@ impl Direction {
     }
 }
 
-fn painted_squares(program: intcode::Program) -> usize {
-    paint_common(program, BLACK).len()
+fn painted_squares(mut program: intcode::Program) -> usize {
+    paint_common(&mut program, BLACK).len()
 }
 
-fn painted_hull(program: intcode::Program) -> Hull {
-    paint_common(program, WHITE)
+fn painted_hull(mut program: intcode::Program) -> Hull {
+    paint_common(&mut program, WHITE)
 }
 
-fn paint_common(program: intcode::Program, initial_square: intcode::Byte) -> Hull {
+fn paint_common(program: &mut intcode::Program, initial_square: intcode::Byte) -> Hull {
     intcode::execute_side_by_side(program, move |tx, rx| {
         use Direction::*;
 

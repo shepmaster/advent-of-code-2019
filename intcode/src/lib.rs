@@ -1,9 +1,7 @@
 pub use crossbeam_channel::{unbounded as channel, Receiver, Sender};
+use crossbeam_utils::thread;
 use itertools::Itertools;
-use std::{
-    convert::{TryFrom, TryInto},
-    thread,
-};
+use std::{convert::{TryFrom, TryInto}, str::FromStr};
 
 pub type Byte = i128;
 pub type Program = Vec<Byte>;
@@ -242,7 +240,7 @@ impl Operation {
                 *relative_base = a;
                 *pc += self.width();
             }
-            Halt => { /* Do nothing */ }
+            Halt => *pc += self.width(),
         }
 
         Ok(())
@@ -284,54 +282,111 @@ pub fn parse_program(s: &str) -> Program {
     s.trim().split(",").flat_map(str::parse).collect()
 }
 
+#[derive(Debug)]
+pub struct Computer {
+    pub program: Program,
+    pc: usize,
+    relative_base: usize,
+}
+
+impl FromStr for Computer {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Computer> {
+        let program: Result<_, _> = s.trim().split(",").map(str::parse).collect();
+        Ok(Self::new(program?))
+    }
+}
+
+impl Computer {
+    pub fn new(program: Program) -> Self {
+        Self {
+            program,
+            pc: 0,
+            relative_base: 0,
+        }
+    }
+
+    pub fn execute(
+        &mut self,
+        input: impl IntoIterator<Item = Byte>,
+        mut output: impl OutputStream<Item = Byte>,
+    ) -> Result<()> {
+        let mut input = input.into_iter();
+
+        loop {
+            let op = Operation::decode(&self.program, self.pc)?;
+
+            op.execute(
+                &mut self.program,
+                &mut self.pc,
+                &mut self.relative_base,
+                &mut input,
+                &mut output,
+            )?;
+
+            if op == Operation::Halt {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn execute_side_by_side<F, T>(&mut self, f: F) -> T
+    where
+        T: Send + Sync,
+        F: FnOnce(Sender<Byte>, Receiver<Byte>) -> T,
+        F: Send + Sync,
+    {
+        let (tx, rx) = channel();
+        let (tx2, rx2) = channel();
+
+        thread::scope(|s| {
+            let side_program = s.spawn(move |_| f(tx2, rx));
+
+            let computer = s.spawn(move |_| {
+                eprintln!("Computer running");
+                let v = self.execute(rx2, tx);
+                eprintln!("Computer exiting");
+                v
+            });
+
+            computer
+                .join()
+                .expect("Computer panicked")
+                .expect("Execution failed");
+            let side_result = side_program.join().expect("Side program panicked");
+
+            side_result
+        })
+        .expect("Unable to run side-by-side program")
+    }
+}
+
 pub fn execute_with_output(
     program: &mut Program,
     input: impl IntoIterator<Item = Byte>,
-    mut output: impl OutputStream<Item = Byte>,
+    output: impl OutputStream<Item = Byte>,
 ) -> Result<()> {
-    let mut pc = 0;
-    let mut relative_base = 0;
-    let mut input = input.into_iter();
-
-    loop {
-        let op = Operation::decode(program, pc)?;
-
-        if op == Operation::Halt {
-            break;
-        }
-
-        op.execute(
-            program,
-            &mut pc,
-            &mut relative_base,
-            &mut input,
-            &mut output,
-        )?;
-    }
-
-    Ok(())
+    let inner_program = std::mem::replace(program, Program::new());
+    let mut computer = Computer::new(inner_program);
+    let r = computer.execute(input, output);
+    std::mem::swap(program, &mut computer.program);
+    r
 }
 
-pub fn execute_side_by_side<F, T>(mut program: Program, f: F) -> T
+pub fn execute_side_by_side<F, T>(program: &mut Program, f: F) -> T
 where
-    T: Send + Sync + 'static,
+    T: Send + Sync,
     F: FnOnce(Sender<Byte>, Receiver<Byte>) -> T,
-    F: Send + Sync + 'static,
+    F: Send + Sync,
 {
-    let (tx, rx) = channel();
-    let (tx2, rx2) = channel();
-
-    let side_program = thread::spawn(move || f(tx2, rx));
-
-    let computer = thread::spawn(move || execute_with_output(&mut program, rx2, tx));
-
-    computer
-        .join()
-        .expect("Computer panicked")
-        .expect("Execution failed");
-    let side_result = side_program.join().expect("Side program panicked");
-
-    side_result
+    let inner_program = std::mem::replace(program, Program::new());
+    let mut computer = Computer::new(inner_program);
+    let r = computer.execute_side_by_side(f);
+    std::mem::swap(program, &mut computer.program);
+    r
 }
 
 pub fn execute(program: &mut Program, input: impl IntoIterator<Item = Byte>) -> Result<Output> {
