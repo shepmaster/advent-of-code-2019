@@ -95,13 +95,16 @@ fn play_game(computer: &mut intcode::Computer, mut board: Board) -> intcode::Byt
                 board.insert((x, y), tile);
 
                 if tile == Tile::Ball {
-                    let ((px, _), _) = board.iter().find(|&(_, &t)| t == Tile::HorizontalPaddle).expect("No paddle");
+                    let ((px, _), _) = board
+                        .iter()
+                        .find(|&(_, &t)| t == Tile::HorizontalPaddle)
+                        .expect("No paddle");
 
                     use std::cmp::Ordering::*;
                     let paddle_direction = match x.cmp(&px) {
                         Less => LEFT,
                         Equal => NEUTRAL,
-                        Greater => RIGHT
+                        Greater => RIGHT,
                     };
 
                     // Ignore errors - if the computer is shut down, we don't care.

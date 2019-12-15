@@ -1,7 +1,10 @@
 pub use crossbeam_channel::{unbounded as channel, Receiver, Sender};
 use crossbeam_utils::thread;
 use itertools::Itertools;
-use std::{convert::{TryFrom, TryInto}, str::FromStr};
+use std::{
+    convert::{TryFrom, TryInto},
+    str::FromStr,
+};
 
 pub type Byte = i128;
 pub type Program = Vec<Byte>;
