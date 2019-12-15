@@ -76,15 +76,58 @@ impl FromStr for Reactions {
 
 const ORE: &str = "ORE";
 const FUEL: &str = "FUEL";
+const TRILLION: u64 = 1_000_000_000_000;
 
 impl Reactions {
+    pub fn total(&self) -> u64 {
+        let (min, max) = self.total_search_bounds();
+        self.total_binary_search(min, max)
+    }
+
+    fn total_search_bounds(&self) -> (u64, u64) {
+        let minimum = TRILLION / self.solve_for(1);
+
+        let mut guess = minimum;
+        let step = minimum / 10;
+
+        let maximum = loop {
+            let output = self.solve_for(guess);
+            if output > TRILLION {
+                break guess;
+            }
+            guess += step;
+        };
+
+        (minimum, maximum)
+    }
+
+    fn total_binary_search(&self, mut minimum: u64, mut maximum: u64) -> u64 {
+        use std::cmp::Ordering::*;
+
+        while minimum + 1 != maximum {
+            let guess = (maximum - minimum) / 2 + minimum;
+
+            match self.solve_for(guess).cmp(&TRILLION) {
+                Less => minimum = guess,
+                Equal => return guess,
+                Greater => maximum = guess,
+            };
+        }
+
+        minimum
+    }
+
     pub fn solve(&self) -> u64 {
+        self.solve_for(1)
+    }
+
+    pub fn solve_for(&self, n: u64) -> u64 {
         let mut requirements = BTreeMap::<_, u64>::new();
         let mut next_requirements = BTreeMap::<_, u64>::new();
         let mut excess = BTreeMap::<_, u64>::new();
         let mut ore_count = 0;
 
-        requirements.insert(FUEL, 1);
+        requirements.insert(FUEL, n);
 
         while !requirements.is_empty() {
             // eprintln!("\n\n{:?}", requirements);
@@ -192,6 +235,7 @@ mod test {
         "#
         .parse()?;
         assert_eq!(reactions.solve(), 13312);
+        assert_eq!(reactions.total(), 82892753);
         Ok(())
     }
 
@@ -213,6 +257,7 @@ mod test {
         "#
         .parse()?;
         assert_eq!(reactions.solve(), 180697);
+        assert_eq!(reactions.total(), 5586022);
         Ok(())
     }
 
@@ -239,6 +284,7 @@ mod test {
         "#
         .parse()?;
         assert_eq!(reactions.solve(), 2210736);
+        assert_eq!(reactions.total(), 460664);
         Ok(())
     }
 }
@@ -248,5 +294,6 @@ const INPUT: &str = include_str!("input.txt");
 fn main() -> Result<()> {
     let reactions: Reactions = INPUT.parse()?;
     println!("{}", reactions.solve());
+    println!("{}", reactions.total());
     Ok(())
 }
