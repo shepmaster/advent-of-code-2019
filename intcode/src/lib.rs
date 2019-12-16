@@ -349,9 +349,7 @@ impl Computer {
             let side_program = s.spawn(move |_| f(tx2, rx));
 
             let computer = s.spawn(move |_| {
-                eprintln!("Computer running");
                 let v = self.execute(rx2, tx);
-                eprintln!("Computer exiting");
                 v
             });
 
