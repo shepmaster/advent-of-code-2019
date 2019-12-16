@@ -152,12 +152,15 @@ fn map_out_area(computer: &mut intcode::Computer) -> Map {
                 // We've returned to the start and visited everywhere
                 print_map(&map, (0, 0));
 
-                // The program never seems to halt, so we trigger
-                // our own panic to print out the data. Presumably
-                // part 2 addresses this.
+                // The program never seems to halt, so we do work here
+                // and trigger our own panic to print out the data.
                 let path = calculate_path(&map);
-                panic!("Found oxygen {} steps away", path.len() - 1);
-                // return map;
+                println!("Found oxygen {} steps away", path.len() - 1);
+
+                let time = calculate_dispersion(map);
+                println!("Oxygen takes {} minutes to fill the area", time);
+
+                panic!("Program doesn't halt");
             }
 
             let (direction, next_position) =
@@ -216,6 +219,28 @@ fn calculate_path(map: &Map) -> Vec<Coord> {
     }
 
     vec![]
+}
+
+fn calculate_dispersion(mut map: Map) -> usize {
+    let mut minutes = 0;
+
+    while map.values().any(|&t| t == MOVE) {
+        let expansion_coords = map
+            .iter()
+            .filter(|&(_, &t)| t == OXYGEN)
+            .flat_map(|(&c, _)| neighbors(c))
+            .filter(|c| map.get(c).copied() == Some(MOVE));
+
+        let mut next_map = map.clone();
+        for expansion_coord in expansion_coords {
+            next_map.insert(expansion_coord, OXYGEN);
+        }
+        map = next_map;
+
+        minutes += 1;
+    }
+
+    minutes
 }
 
 fn neighbors(coord: Coord) -> impl Iterator<Item = Coord> {
